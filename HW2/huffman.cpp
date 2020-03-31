@@ -3,68 +3,99 @@
 #include <set>
 #include <vector>
 #include <cmath>
+#include <fstream>
 using namespace std;
 
-class node{
+class huffman_encode{
 public:
-    bool is_data;
-    char data;
-    int freq;
-    node *left, *right;
-    node():is_data(false),data('0'),freq(0),left(NULL),right(NULL){}
-};
 
-class encode{
-public:
-    unsigned char ori;
-    int enc;
-    encode():ori('0'),enc(0){}
-};
+    //encoding function, return encoded text
+    vector<unsigned char> encode_file(string filename);
+
+private:
+
+    // encoding hash table for input file
+    map<unsigned char, int> enc_table;
+
+    //read binary file
+    vector<unsigned char> read_bfile(string filename);
+
+    //return encode
+    vector<unsigned char> fix_len_huffman(vector<unsigned char> ori);
+}huff;
 
 
-// void huffman(string ori_str){
-//     map<char,int> table;
-//     for(int i = 0 ; i < ori_str.size() ; ++i){
-//         table[ori_str[i]]+=1;
-//     }
-//     /*
-//     for(map<char,int>::iterator i = table.begin() ; i != table.end() ; ++i){
-//         cout << i->first << " " << i->second << endl;
-//     }*/
-//     //make every char a node
-//     vector<node> tree;
-//     for(map<char,int>::iterator i = table.begin() ; i != table.end() ; ++i){
-//         node *new_node = new node;
-//         new_node->is_data = true;
-//         new_node->data = i->first;
-//         new_node->freq = i->second;
-        
-//     }
-//     //find least freq 2, combine
 
-// }
-
-vector<encode> fix_len_huffman(string ori_str){
-    set<unsigned char> table;
-    for(int i = 0 ; i < ori_str.size() ; ++i){
-        table.insert(ori_str[i]);
-    }
-    vector<encode> enc_table;
-    int size = table.size();
-    int enc_len = ceil(log(size)/log(2));
-    int count = 0;
-    for(auto i : table){
-        encode j;
-        j.ori = i;
-        j.enc = count++;
-        enc_table.push_back(j);
-    }
-    return enc_table;
+// main program
+int main(){
+    string file_name = "test";
+    vector<unsigned char> e = huff.encode_file(file_name);
+    for(int i=0;i<e.size();++i) cout << e[i];
+    cout << endl;    
+    return 0;
 }
 
-int main(){
-    string test = "i am a good person";
-    vector<encode> a = fix_len_huffman(test);
-    for(int i=0;i<a.size();++i) cout << a[i].ori << " " << a[i].enc << endl;
-    return 0;
+
+//read binary file
+vector<unsigned char> huffman_encode::read_bfile(string filename){
+    ifstream ifile;
+    ifile.open(filename, ios::binary); //open file as binary, which lets us process image, video ... etc
+    unsigned char in; //store binary as unsigned char
+
+    vector<unsigned char> return_vec;
+    while(ifile >> in){
+        return_vec.push_back(in);
+    }
+
+    return return_vec;
+}
+
+//return encode
+vector<unsigned char> huffman_encode::fix_len_huffman(vector<unsigned char> ori){
+    set<unsigned char> plantext_table;
+    
+    for(int i = 0 ; i < ori.size() ; ++i){
+        plantext_table.insert(ori[i]);
+    }
+
+    //create encoding hash table
+    int count = 0;
+    for(auto i : plantext_table){
+        enc_table[i] = count++;
+    }
+    
+    //encode the origin text
+    int plan_len = ori.size();
+    for(int i = 0; i < plan_len ; ++i){
+        ori[i] = enc_table[ori[i]] + '0' ;
+    }
+    return ori;
+}
+
+vector<unsigned char> huffman_encode::encode_file(string filename){
+    // read in file
+    vector<unsigned char> in_file = read_bfile(filename);
+    in_file = fix_len_huffman(in_file);
+    vector<unsigned char> enc;
+    
+    //add header of encoding
+    int cnt = 0; //length of the encoding key
+    for(auto i : enc_table){
+        enc.push_back(i.first);
+        enc.push_back('=');
+        enc.push_back(i.second + '0');
+        enc.push_back(',');
+        ++cnt;
+    }
+
+    //add length of encoding key to front
+    enc.insert(enc.begin(),',');
+    enc.insert(enc.begin(),cnt + '0' );
+
+    //then combine with encoded data
+    for(int i = 0; i < in_file.size() ; ++i){
+        enc.push_back(in_file[i]);
+    }
+
+    return enc;
 }
