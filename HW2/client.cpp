@@ -2,26 +2,44 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <strings.h>
+#include <string.h>
+#include <sstream>
+#define ACPT_CLIENT 5
 using namespace std;
 
 class Network{
 public:
-    void run_interface(); //create an enviroment to let user type in command
-
+    void run_interface(int choice); //create an enviroment to let user type in command
+    Network(){ child_cnt = 0; }
 //private:
     int client_fd; int server_fd; //file descripter of client socket and server socket
+    int child_fd[ACPT_CLIENT]; //child create by accept()
+    int child_cnt;
     void create_client_sock(uint16_t port);
     void create_server_sock(uint16_t port);
-    void connect(string ip, uint16_t port); //client connect to server
+    void connect2srv(string ip, uint16_t port); //client connect to server
     void disconnect();
     void send_file(string filename);
-};
+    void listen2cli();
+    void read_cli();
+}network;
 
-int main(){
-    Network network;
-    //network.create_client_sock(1256);
-    network.create_server_sock(1256);
+/************************************************/
+// Main
+/************************************************/
+int main(int argv, char ** argc){
+    //check if run as server or client
+    if(argv != 2){
+        cout << "Please choose to run as client or server by \"[program name] client/server\"\n";
+        return 0;
+    }
+    if(strcmp(argc[1],"client") == 0){
+        network.run_interface(0);
+    }
+    else if(strcmp(argc[1],"server") == 0){
+       network.run_interface(1);
+    }
+    return 0;
 }
 
 void Network::create_client_sock(uint16_t port){
@@ -31,6 +49,7 @@ void Network::create_client_sock(uint16_t port){
         cerr << "Client socket create error\n";
         exit(1);
     }
+    else cout << "Client socket create successful\n";
 }
 
 
@@ -38,10 +57,9 @@ void Network::create_server_sock( uint16_t port){
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     if(server_fd < 0){
-        cerr << "Create server socket error\n";
+        cerr << "[TA @ CSE ~]  Create server socket error\n";
     }
-void connect(string ip, uint16_t port);void connect(strivoid connect(string ip, uint16_t port);ng ip, uint16_t port);
-    struct sockaddr_in srv;
+   struct sockaddr_in srv;
 
     srv.sin_family = AF_INET; //internet address family (ipv4)
     srv.sin_port = htons(port);
@@ -49,20 +67,94 @@ void connect(string ip, uint16_t port);void connect(strivoid connect(string ip, 
 
     //bind port
     if(bind(server_fd, (struct sockaddr*) &srv, sizeof(srv)) < 0){
-        cerr << "bind server socket error\n"; exit(1);
+        cerr << "[TA @ CSE ~] bind server socket error\n"; exit(1);
     }
-    else cout << "bind server socket successfully\n";
+    else cout << "[TA @ CSE ~] bind server socket successfully\n";
  }
 
- void Network::connect(string ip, uint16_t port){
+ void Network::connect2srv(string ip, uint16_t port){
      struct sockaddr_in srv;
 
      srv.sin_family = AF_INET;
      srv.sin_port = htons(port); // target server's port
      srv.sin_addr.s_addr = inet_addr(ip.c_str()); // target server's ip
 
+     cout << "debug: ip.c_str() == " << ip.c_str() << endl;
+
      if( connect(client_fd, (struct sockaddr *)&srv, sizeof(srv)) < 0){
          cerr << "connect to server " << ip << ":" << port << " error\n";
      }
      else cout << "connect to server " << ip << ":" << port << " success\n";
  }
+
+ void Network::run_interface(int choice){
+     // user input
+    string userin, temp;
+     switch(choice){
+         // 0 as client
+         case 0:
+            // create client socket
+            create_client_sock(1);
+            cout << "Client ip: 127.0.0.1 port: 1\n";
+            while(1){
+                cout << "[student @ CSE ~ ]$ ";
+                getline(cin,userin);
+                stringstream ss(userin);
+                ss >> temp;
+                 if(temp == "connect"){
+                     u_int16_t port;
+                     ss >> temp;
+                     ss >> port;
+                    connect2srv(temp,port);
+                 }
+                else if(temp == "upload"){
+                    ss >> temp;
+                    send_file(temp);
+                }
+                else if(temp == "goodbye"){
+                    cout << "See you next time.\n";
+                    return;
+                }
+                else{
+                    cout << "Unknown Command: " << temp << endl;
+                }
+            }
+            return;
+        // 1 as server
+        case 1:
+            // create server socket
+            network.create_server_sock(1234);
+            cout << "[TA @ CSE ~]  Server startup\n";
+            cout << "[TA @ CSE ~]  Server ip: 127.0.0.1 port: 1234\n";
+            while(1){
+                network.listen2cli();
+
+            }
+            return;
+     }
+ }
+
+void Network::send_file(string filename){
+    cout << "Debug: send file\n";
+}
+
+void Network::listen2cli(){
+    if(listen(server_fd, ACPT_CLIENT) < 0){
+        cerr << "Listen for client error\n";
+        exit(1);
+    }
+    else  cout << "[TA @ CSE ~]  Listening ...\n";
+
+    // accpet procedure
+    struct sockaddr_in cli; // info regarding incoming client
+    int cli_len = sizeof(cli);
+
+    // blocking function
+    child_fd[child_cnt] = accept(server_fd, (struct sockaddr *) &cli, (socklen_t *) &cli_len);
+    if(child_fd[child_cnt] < 0){
+        cerr << "Accept client error\n";
+        exit(1);
+    }
+    else ++child_cnt;
+
+}
