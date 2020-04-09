@@ -1,27 +1,30 @@
 #include <iostream>
+#include <string.h>
+#include <sstream> 
+#include <unistd.h> //read(), write()
+//network libraries
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <string.h>
-#include <sstream>
-#define ACPT_CLIENT 5
+#define ACPT_CLIENT 5 //number of clients a server can accept
 using namespace std;
 
 class Network{
 public:
     void run_interface(int choice); //create an enviroment to let user type in command
     Network(){ child_cnt = 0; }
-//private:
+private:
     int client_fd; int server_fd; //file descripter of client socket and server socket
     int child_fd[ACPT_CLIENT]; //child create by accept()
-    int child_cnt;
+    int child_cnt; //count how many client currently connect to server
+    char buf[512]; // server: read client data.  client: send data
     void create_client_sock(uint16_t port);
     void create_server_sock(uint16_t port);
     void connect2srv(string ip, uint16_t port); //client connect to server
-    void disconnect();
+    void disconnect(); //close client connection to server
     void send_file(string filename);
     void listen2cli();
-    void read_cli();
+    int read_cli(); // read from client, return data length
 }network;
 
 /************************************************/
@@ -50,6 +53,20 @@ void Network::create_client_sock(uint16_t port){
         exit(1);
     }
     else cout << "Client socket create successful\n";
+
+    //bind port
+    struct sockaddr_in cli;
+
+    cli.sin_family = AF_INET; //internet address family (ipv4)
+    cli.sin_port = htons(port);
+    cli.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    //bind port
+    if(bind(client_fd, (struct sockaddr*) &cli, sizeof(cli)) < 0){
+        cerr << "bind client socket error\n"; exit(1);
+    }
+    else cout << "bind client socket successfully\n";
+
 }
 
 
@@ -63,7 +80,7 @@ void Network::create_server_sock( uint16_t port){
 
     srv.sin_family = AF_INET; //internet address family (ipv4)
     srv.sin_port = htons(port);
-    srv.sin_addr.s_addr = INADDR_ANY;
+    srv.sin_addr.s_addr = htonl(INADDR_ANY);
 
     //bind port
     if(bind(server_fd, (struct sockaddr*) &srv, sizeof(srv)) < 0){
@@ -112,6 +129,7 @@ void Network::create_server_sock( uint16_t port){
                     send_file(temp);
                 }
                 else if(temp == "goodbye"){
+                    disconnect();
                     cout << "See you next time.\n";
                     return;
                 }
@@ -126,16 +144,25 @@ void Network::create_server_sock( uint16_t port){
             network.create_server_sock(1234);
             cout << "[TA @ CSE ~]  Server startup\n";
             cout << "[TA @ CSE ~]  Server ip: 127.0.0.1 port: 1234\n";
+            cout << "[TA @ CSE ~]  Listening ...\n";
             while(1){
-                network.listen2cli();
-
+                listen2cli();
+                read_cli();
             }
             return;
      }
  }
 
 void Network::send_file(string filename){
-    cout << "Debug: send file\n";
+    //debug test
+    strcpy(buf, "This is testing data to be sent by client");
+
+    int nbytes; // use to check how many bytes had been writen
+    if( (nbytes = write(client_fd, buf, sizeof(buf)))  < 0){
+        cerr << "Write to client socket Error\n";
+        exit(1);
+    }
+    return;
 }
 
 void Network::listen2cli(){
@@ -143,7 +170,6 @@ void Network::listen2cli(){
         cerr << "Listen for client error\n";
         exit(1);
     }
-    else  cout << "[TA @ CSE ~]  Listening ...\n";
 
     // accpet procedure
     struct sockaddr_in cli; // info regarding incoming client
@@ -155,6 +181,28 @@ void Network::listen2cli(){
         cerr << "Accept client error\n";
         exit(1);
     }
-    else ++child_cnt;
+    else{
+         ++child_cnt;
+
+         cout << "A Client " << inet_ntoa(cli.sin_addr) << " has connected via port num " << ntohs(cli.sin_port) << " using SOCK_STREAM (TCP)\n";
+    }
 
 }
+
+int Network::read_cli(){
+    int nbytes; //count data length from client
+    if( (nbytes = read(child_fd[child_cnt-1], buf, sizeof(buf))) < 0){
+        cerr << "Read from client Error\n";
+        exit(1);
+    }
+    //debug
+    cout << "Debug: " << buf << endl;
+    return nbytes;
+}
+
+void Network::disconnect(){
+    if( close(client_fd) != 0){
+        cerr << "Close client socket failed\n";
+    }
+    else cout << "Client Socket Closed\n";
+} 
