@@ -18,7 +18,8 @@ public:
 private:    
     int orisize=0; //origin file byte
     int cpsize=0; //compress file byte
-    int zero_pad; //ho many zero padded
+    int zero_pad; //how many zero padded
+    int enc_len; //fix-len encoding's length
     unsigned char delim = -1; //delimiter for header
     map<unsigned char, int> enc_table; // encoding hash table for input file
     map<string, unsigned char> dec_table; // decoding hash table for the compressed file
@@ -28,12 +29,12 @@ private:
     int read_header(vector<unsigned char> cp); //read the header of the compressed file, return the starting point of actual data
     string formbyte(vector<unsigned char> s); //turn bits to byte
     string convert_to_binary(unsigned char c); //convert input bit into binary
-    string convert_to_binary(int c);
+    string convert_to_binary(int c, int len); //len decide length of the binary data
 }huff;
 
 /*header of the compressed data looks like*/
 /*
-[number of keys in hash table](delim)[key1](delim)[key2](delim)...(delim)[keyN](delim)[number of zero padding](delim)[original filesize](delim)[here is the compress data]
+[number of keys in hash table](delim)(encode len)(delim)[key1](delim)[key2](delim)...(delim)[keyN](delim)[number of zero padding](delim)[original filesize](delim)[here is the compress data]
 .
 .
 .
@@ -74,7 +75,20 @@ vector<unsigned char> encode::fix_len_encode(vector<unsigned char> ori){
     for(int i = 0; i < plan_len ; ++i){
         ori[i] = enc_table[ori[i]] + '0' ;
     }
-    return ori;
+
+    enc_len = ceil(log(plantext_table.size()) / log(2)); //count length of the fix-length encode
+    //turn to binary form
+    vector<unsigned char> bits_collect;
+    for(auto i : ori){
+        string s = convert_to_binary(i - '0', enc_len);
+        for(auto j : s) bits_collect.push_back(j);
+    }
+    
+    //debug
+    for(auto i : bits_collect) cout << i;
+    cout << endl << endl;
+
+    return bits_collect;
 }
 
 void encode::decode_file(string filename){
@@ -82,21 +96,16 @@ void encode::decode_file(string filename){
     int dec_pos = read_header(cp_file); //the starting position of encoded file
 
     //debug hash table
-   // for(auto i : dec_table) cout << i.first << " " << i.second << endl;
+    for(auto i : dec_table) cout << i.first << " " << i.second << endl;
 
-    //start decoding
+        //start decoding
     string bits_collector = "";
     for(int i = dec_pos ; i < cpsize - zero_pad ; ++i){
-        bits_collector += convert_to_binary(cp_file[i]); cout << "debug:" << bits_collector << endl;
-        string s = "";
-        for(int  j = 0 ; j < bits_collector.size() ; ++j){
-            if(!dec_table.count(s + bits_collector[j])){
-                cout << dec_table[s] << " ";
-                bits_collector.erase(0,j);
-                break;
-            }
-            s += bits_collector[j];
-        }
+        bits_collector += convert_to_binary(cp_file[i]);
+        //cout << dec_table[bits_collector.substr(0,enc_len)];
+        //cout << bits_collector << endl;
+        cout << cp_file[i] << " ";
+        bits_collector.erase(0,enc_len);
     }
 
     return;
@@ -106,15 +115,14 @@ int encode::read_header(vector<unsigned char> cp){
     int num_of_keys; // number of keys in hash table
     num_of_keys = cp[0] - '0';
 
-    int cur_val = 2;
+    int cur_val = 2; //pointer for reading header
+
+    //fix length encoding's len
+    enc_len = cp[cur_val++] - '0';
+    ++cur_val; //skip delim
+
     for(int i = 0 ; i< num_of_keys ; ++i){
-        string bits = convert_to_binary(int(cp[cur_val + 2] - '0'));
-        int nzero = 0; //num of zero in front
-        while(nzero < BYTE-1){
-            if(bits[nzero] == '1') break;
-            ++nzero;
-        }
-        if(nzero) bits.erase(0,nzero);//erase the front 0 part
+        string bits = convert_to_binary(cp[cur_val + 2] - '0', enc_len);
         dec_table[bits] = cp[cur_val]; //combine the key and the value to form a hash
         cur_val += 4;
     }
@@ -165,6 +173,10 @@ vector<unsigned char> encode::encode_file(string filename){
     string in_file_byte = formbyte(in_file); //turn encode data form bits to bytes
 
     vector<unsigned char> enc;
+
+    //header: fix_len encoding's len
+    enc.push_back(enc_len + '0');
+    enc.push_back(delim);
     
     //add header of encoding
     int cnt = 0; //length of the encoding key
@@ -200,7 +212,7 @@ string encode::convert_to_binary(unsigned char c){
 	return s;
 }
 
-string encode::convert_to_binary(int c){
+string encode::convert_to_binary(int c, int len){
 	int number = c;
 	string s = "";
 	while(number){
@@ -208,7 +220,7 @@ string encode::convert_to_binary(int c){
 		else s = '0' + s;
 		number/=2;
 	}
-	while(s.size() < BYTE) s = '0' + s;
+	while(s.size() < len) s = '0' + s;
 	return s;
 }
 
@@ -230,11 +242,14 @@ string encode::formbyte(vector<unsigned char> s){
 		if(s[i]=='1')
 			n+=(int)pow(2,j);
 		if(i%BYTE==BYTE-1){
-			byte_data += to_string(n);
+			byte_data.push_back(char(n));
 			j=BYTE;
 			n=0;
 		}
 	}
+
+    //debug
+    cout << byte_data << endl << endl;
 
     return byte_data;
 }
