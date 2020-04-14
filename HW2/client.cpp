@@ -2,11 +2,15 @@
 #include <string.h>
 #include <sstream> 
 #include <unistd.h> //read(), write()
+#include <fstream>
+#include <vector>
 //network libraries
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #define ACPT_CLIENT 5 //number of clients a server can accept
+#define CLIENT_PORT 6543
+#define SERVER_PORT 1234
 using namespace std;
 
 class Network{
@@ -111,8 +115,8 @@ void Network::create_server_sock( uint16_t port){
          // 0 as client
          case 0:
             // create client socket
-            create_client_sock(1);
-            cout << "Client ip: 127.0.0.1 port: 1\n";
+            create_client_sock(CLIENT_PORT);
+            cout << "Client ip: 127.0.0.1 port: " << CLIENT_PORT << "\n";
             while(1){
                 cout << "[student @ CSE ~ ]$ ";
                 getline(cin,userin);
@@ -141,9 +145,9 @@ void Network::create_server_sock( uint16_t port){
         // 1 as server
         case 1:
             // create server socket
-            network.create_server_sock(1234);
+            network.create_server_sock(SERVER_PORT);
             cout << "[TA @ CSE ~]  Server startup\n";
-            cout << "[TA @ CSE ~]  Server ip: 127.0.0.1 port: 1234\n";
+            cout << "[TA @ CSE ~]  Server ip: 127.0.0.1 port: " << SERVER_PORT << "\n";
             cout << "[TA @ CSE ~]  Listening ...\n";
             while(1){
                 listen2cli();
@@ -154,8 +158,20 @@ void Network::create_server_sock( uint16_t port){
  }
 
 void Network::send_file(string filename){
-    //debug test
-    strcpy(buf, "This is testing data to be sent by client");
+    ifstream infile;
+    infile.open(filename, ios::in | ios::binary);
+
+    char c;
+    vector<unsigned char> in_data;
+
+    while(!infile.eof()){
+        infile.get(c);
+        in_data.push_back(c);
+    }
+    cout << "debug data size: " << in_data.size() << endl;
+
+    //copy to buffer
+    for(int i = 0 ; i < in_data.size() ; ++ i) buf [i]= in_data[i];
 
     int nbytes; // use to check how many bytes had been writen
     if( (nbytes = write(client_fd, buf, sizeof(buf)))  < 0){
