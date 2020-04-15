@@ -1,206 +1,134 @@
-#include <iostream>
-#include <map>
-#include <set>
-#include <string>
-#include <vector>
-#include <cmath>
-#include <fstream>
+﻿#include "huffman.h"
 #define BYTE 8
-using namespace std;
+int orisize=0; //origin file byte
+int cpsize=0; //compress file byte
 
 
-class encode{
-public:
-    //encoding function, return encoded text (in byte form)
-    vector<unsigned char> encode_file(string filename);
-    //decode function, save as filename
-    void decode_file(string filename);
-private:    
-    int orisize=0; //origin file byte
-    int cpsize=0; //compress file byte
-    int zero_pad; //how many zero padded
-    int enc_len; //fix-len encoding's length
-    unsigned char delim = -1; //delimiter for header
-    map<unsigned char, int> enc_table; // encoding hash table for input file
-    map<string, unsigned char> dec_table; // decoding hash table for the compressed file
 
-    vector<unsigned char> read_bfile(string filename); //read binary file
-    vector<unsigned char> fix_len_encode(vector<unsigned char> ori); //return encode
-    int read_header(vector<unsigned char> cp); //read the header of the compressed file, return the starting point of actual data
-    string formbyte(vector<unsigned char> s); //turn bits to byte
-    string convert_to_binary(unsigned char c); //convert input bit into binary
-    string convert_to_binary(int c, int len); //len decide length of the binary data
-}huff;
-
-/*header of the compressed data looks like*/
-/*
-[number of keys in hash table](delim)(encode len)(delim)[key1](delim)[key2](delim)...(delim)[keyN](delim)[number of zero padding](delim)[original filesize](delim)[here is the compress data]
-.
-.
-.
-[here is the compress data]
-*/
-
-// main program
-int main(){
-    string file_name = "test";
-    vector<unsigned char> e = huff.encode_file(file_name);
-    ofstream out;
-    out.open("temp");
-    for(int i=0;i<e.size();++i) out << e[i];
-    out.close();
-    
-    huff.decode_file("temp");    
-    return 0;
+//interface
+void use_huff(int cmd, string fname){
+	switch(cmd){
+		case 1:
+		{
+			string compname = "."+fname+"_";
+			compress(fname, compname);
+			break;
+		}
+		case 2:
+		{
+			string decompname = fname + "decomp";
+			decompname = decompname.erase(0,1);
+			decompress(fname,decompname);
+			break;
+		}
+	}
+	return;
 }
 
+bool compar(node* a, node* b){ return a->freq > b->freq || (a->freq==b->freq && a->key[0] > b->key[0]); }  //descending partition
 
-
-//return encode
-vector<unsigned char> encode::fix_len_encode(vector<unsigned char> ori){
-    set<unsigned char> plantext_table;
-    
-    for(int i = 0 ; i < ori.size() ; ++i){
-        plantext_table.insert(ori[i]);
-    }
-
-    //create encoding hash table
-    int count = 0;
-    for(auto i : plantext_table){
-        enc_table[i] = count++;
-    }
-    
-    //encode the origin text
-    int plan_len = ori.size();
-    for(int i = 0; i < plan_len ; ++i){
-        ori[i] = enc_table[ori[i]] + '0' ;
-    }
-
-    enc_len = ceil(log(plantext_table.size()) / log(2)); //count length of the fix-length encode
-    //turn to binary form
-    vector<unsigned char> bits_collect;
-    for(auto i : ori){
-        string s = convert_to_binary(i - '0', enc_len);
-        for(auto j : s) bits_collect.push_back(j);
-    }
-    
-    //debug
-    for(auto i : bits_collect) cout << i;
-    cout << endl << endl;
-
-    return bits_collect;
+//function definition
+void huffman(node* root, map<unsigned char,vector<int>> &dict){
+	if(!root) return;
+	//preorder traversal
+	if(root->key.size()==1)
+		dict[root->key[0]]=root->route; //we only care leaf node
+	huffman(root->left,dict);
+	huffman(root->right,dict);
 }
 
-void encode::decode_file(string filename){
-    vector<unsigned char> cp_file = read_bfile(filename);
-    int dec_pos = read_header(cp_file); //the starting position of encoded file
-
-    //debug hash table
-    for(auto i : dec_table) cout << i.first << " " << i.second << endl;
-
-        //start decoding
-    string bits_collector = "";
-    for(int i = dec_pos ; i < cpsize - zero_pad ; ++i){
-        bits_collector += convert_to_binary(cp_file[i]);
-        //cout << dec_table[bits_collector.substr(0,enc_len)];
-        //cout << bits_collector << endl;
-        cout << cp_file[i] << " ";
-        bits_collector.erase(0,enc_len);
-    }
-
-    return;
+void makeroute(node* root, int v){
+	if(!root) return;
+	root->route.push_back(v);
+	makeroute(root->left,v);
+	makeroute(root->right,v);
 }
 
-int encode::read_header(vector<unsigned char> cp){
-    int num_of_keys; // number of keys in hash table
-    num_of_keys = cp[0] - '0';
+void formbyte(string s, ofstream &out){
+	int addzero=BYTE-(s.size()%BYTE);
+	for(int i=0;i<addzero;++i) s+='0';
+	cpsize+=s.size()/BYTE;
+	out << addzero << endl << orisize << endl << cpsize << endl << (double)orisize/(double)cpsize << endl;
+	int n=0;
+	for(int i=0,j=BYTE-1;i<(int)s.size();++i,--j){
+		if(s[i]=='1')
+			n+=(int)pow(2,j);
+		if(i%BYTE==BYTE-1){
+			out << (unsigned char)n;
+			j=BYTE;
+			n=0;
+		}
+	}
+}
+	
+	
 
-    int cur_val = 2; //pointer for reading header
-
-    //fix length encoding's len
-    enc_len = cp[cur_val++] - '0';
-    ++cur_val; //skip delim
-
-    for(int i = 0 ; i< num_of_keys ; ++i){
-        string bits = convert_to_binary(cp[cur_val + 2] - '0', enc_len);
-        dec_table[bits] = cp[cur_val]; //combine the key and the value to form a hash
-        cur_val += 4;
-    }
-
-     //compress file size was read in read_bfile()
-     cpsize = orisize;
-
-    //extract the zero padding info
-    string siz = "";
-    while(cp[cur_val] != delim){
-        siz.push_back(cp[cur_val]);
-        ++cur_val;
-    }
-    zero_pad = stoi(siz);
-
-   //extract the origin file size info
-    siz = ""; ++cur_val;
-    while(cp[cur_val] != delim) {
-        siz.push_back(cp[cur_val]);
-        ++cur_val;
-    }
-    orisize = stoi(siz);
-
-    return cur_val + 1;
+void compress(string ifname, string ofname){
+	ifstream input;
+	input.open(ifname,ios::binary);
+	input.unsetf(ios::skipws);
+	unsigned char a; //read input
+	map<unsigned char,long long> cnt; //count times an input appears
+	while(input >> a){
+		++cnt[a];
+		++orisize;
+	}
+	input.close();
+	vector<node*> arr;
+	for(map<unsigned char,long long>::iterator it=cnt.begin();it!=cnt.end();++it){
+		node* temp = new node(it->first,it->second); //store the input data in a node, note that the inputs are leaf node
+		arr.push_back(temp);
+	}
+	sort(arr.begin(),arr.end(),compar);
+	//merge
+	while(arr.size()-1){
+		node *temproot = new node; //use to combine the smallest two frequency node
+		//smaller alphabetically order one in left subtree, bigger in right subtree
+		bool com=false; //compare the alphabetically order
+		for(unsigned i=0;i<arr[arr.size()-1]->key.size();++i)
+			if(arr[arr.size()-2]->key[0] > arr[arr.size()-1]->key[i]){ com=true; break;}
+		if(com){ 
+			temproot->left=arr[arr.size()-1];
+			temproot->right=arr[arr.size()-2];
+		}
+		else{ 
+			temproot->left=arr[arr.size()-2];
+			temproot->right=arr[arr.size()-1];
+		}
+		//combine all the children's key
+		for(unsigned i=0;i<arr[arr.size()-1]->key.size();++i) temproot->key.push_back(arr[arr.size()-1]->key[i]);
+		for(unsigned i=0;i<arr[arr.size()-2]->key.size();++i) temproot->key.push_back(arr[arr.size()-2]->key[i]);
+		sort(temproot->key.begin(),temproot->key.end());
+		arr.pop_back(); arr.pop_back();
+		makeroute(temproot->left,0); //add 0 to huffunam node of all the node's of left subtree
+		makeroute(temproot->right,1); //add 1 to huffunam node of all the node's of right subtree
+		temproot->freq=temproot->left->freq+temproot->right->freq; //combine the two son's frequency
+		arr.push_back(temproot);
+		sort(arr.begin(),arr.end(),compar);
+	}
+	map<unsigned char,vector<int>> dict;
+	huffman(arr[0],dict); //construct the huffman code dictionary
+	ofstream output;
+	output.open(ofname,ios::binary);
+	//output header
+	//huffman code
+	for(map<unsigned char,vector<int>>::iterator it=dict.begin();it!=dict.end();++it){
+		output << it->first << "=";
+		cpsize+=2;
+		for(int i=it->second.size()-1;i>=0;--i){ output << it->second[i]; ++cpsize; }
+		output << endl;
+	}
+	//output context
+	input.open(ifname,ios::binary);
+	string s="";
+	while(input >> a)
+		for(int i=dict[a].size()-1;i>=0;--i) s+=(dict[a][i]+'0');
+	formbyte(s,output);
+	input.close();
+	output.close();
 }
 
-//read binary file
-vector<unsigned char> encode::read_bfile(string filename){
-    ifstream ifile;
-    ifile.open(filename, ios::binary); //open file as binary, which lets us process image, video ..0. etc
-    unsigned char in; //store binary as unsigned char
-
-    vector<unsigned char> return_vec;
-    while(ifile >> in){
-        return_vec.push_back(in);
-    }
-    orisize = return_vec.size(); // keep track of original file size
-
-    ifile.close();
-
-    return return_vec;
-}
-
-vector<unsigned char> encode::encode_file(string filename){
-    // read in file
-    vector<unsigned char> in_file = read_bfile(filename);
-    in_file = fix_len_encode(in_file); //encode the input file
-    string in_file_byte = formbyte(in_file); //turn encode data form bits to bytes
-
-    vector<unsigned char> enc;
-
-    //header: fix_len encoding's len
-    enc.push_back(enc_len + '0');
-    enc.push_back(delim);
-    
-    //add header of encoding
-    int cnt = 0; //length of the encoding key
-    for(auto i : enc_table){
-        enc.push_back(i.first);
-        enc.push_back('=');
-        enc.push_back(i.second + '0');
-        enc.push_back(delim);
-        ++cnt;
-    }
-
-    //add length of encoding key to front
-    enc.insert(enc.begin(),delim);
-    enc.insert(enc.begin(),cnt + '0' );
-
-    //then combine with encoded data
-    for(int i = 0; i < in_file.size() ; ++i){
-        enc.push_back(in_file_byte[i]);
-    }
-
-    return enc;
-}
-
-string encode::convert_to_binary(unsigned char c){
+string convert_to_binary(unsigned char c){
 	int number = (int)c;
 	string s = "";
 	while(number){
@@ -212,44 +140,42 @@ string encode::convert_to_binary(unsigned char c){
 	return s;
 }
 
-string encode::convert_to_binary(int c, int len){
-	int number = c;
-	string s = "";
-	while(number){
-		if(number%2) s = '1' + s;
-		else s = '0' + s;
-		number/=2;
-	}
-	while(s.size() < len) s = '0' + s;
-	return s;
-}
-
-string encode::formbyte(vector<unsigned char> s){
-    string byte_data = ""; //the return data of this function
-	int addzero=BYTE-(s.size()%BYTE); //count pad how many 0s
-	for(int i=0;i<addzero;++i) s.push_back('0');
-
-    /* the header looks like:
-    zero padding count (delimiter) original file size (delimiter) compressed file size (delimiter)
-    */
-   string deli = "";
-   deli.push_back(delim);
-	byte_data = to_string(addzero) + deli + to_string(orisize + 1) + deli ;
-
-    //transform bits into bytes
-	int n=0;
-	for(int i=0,j=BYTE-1;i<(int)s.size();++i,--j){
-		if(s[i]=='1')
-			n+=(int)pow(2,j);
-		if(i%BYTE==BYTE-1){
-			byte_data.push_back(char(n));
-			j=BYTE;
-			n=0;
+void decompress(string ifname, string ofname){
+	ifstream input; //read compressed file
+	ofstream output; //output decompressed file
+	input.open(ifname,ios::binary);
+	output.open(ofname,ios::binary);
+	input.unsetf(ios::skipws);
+	map<string,unsigned char> dict; //read the huffman code
+	string in=""; //read dictionary lines
+	unsigned char ch1, ch2;
+	int k=4; //ignore header
+	int addzero;
+	while(input >> ch1 >> ch2){
+		if(ch2=='=') while(input >> ch2){
+			if(ch2!='\n') in+=ch2;
+			else{ dict[in]=ch1; in=""; break;}
 		}
+		else{
+			in+=ch1;
+			while(ch2!='\n'){ in+=ch2; input>> ch2;}
+			if(k==4) addzero=stoi(in);
+			--k;
+			in="";
+		}
+		if(k==0) break;
 	}
-
-    //debug
-    cout << byte_data << endl << endl;
-
-    return byte_data;
+	//turn huffman code back to it's original form(aka decompress)
+	string s="";
+	while(input>>ch1){
+		s+=convert_to_binary(ch1);
+	}
+	string temp="";
+	for(int i=0;i<(int)s.size()-addzero;++i){
+		temp+=s[i];
+		if(dict.count(temp)){output << dict[temp]; temp="";}
+	}
+	input.close();
+	output.close();
 }
+	

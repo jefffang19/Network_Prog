@@ -9,7 +9,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #define ACPT_CLIENT 5 //number of clients a server can accept
-#define CLIENT_PORT 6543
 #define SERVER_PORT 1234
 using namespace std;
 
@@ -20,8 +19,9 @@ public:
 private:
     int client_fd; int server_fd; //file descripter of client socket and server socket
     int child_fd[ACPT_CLIENT]; //child create by accept()
+    struct sockaddr_in cli_addr[ACPT_CLIENT]; //address of clients
     int child_cnt; //count how many client currently connect to server
-    char buf[512]; // server: read client data.  client: send data
+    char buf[512]; // server: read client data.  client: send data, index 0 is saved for : -1 = disconnect, 0 = not data end, 1 = dataend
     void create_client_sock(uint16_t port);
     void create_server_sock(uint16_t port);
     void connect2srv(string ip, uint16_t port); //client connect to server
@@ -48,6 +48,64 @@ int main(int argv, char ** argc){
     }
     return 0;
 }
+
+ void Network::run_interface(int choice){
+     // user input
+    string userin, temp;
+     switch(choice){
+         // 0 as client
+         case 0:
+            // create client socket
+            cout << "Client Port Number(at least 4 digits): ";
+            uint16_t cli_port;
+            cin >> cli_port; 
+            getchar(); //remove \n
+            create_client_sock(cli_port);
+            cout << "Client ip: 127.0.0.1 port: " << cli_port << "\n";
+            while(1){
+                cout << "[student @ CSE ~ ]$ ";
+                getline(cin,userin);
+                stringstream ss(userin);
+                ss >> temp;
+                 if(temp == "connect"){
+                     u_int16_t port;
+                     ss >> temp;
+                     ss >> port;
+                    connect2srv(temp,port);
+                 }
+                else if(temp == "upload"){
+                    ss >> temp;
+                    send_file(temp);
+                }
+                else if(temp == "goodbye"){
+                    disconnect();
+                    cout << "See you next time.\n";
+                    return;
+                }
+                else{
+                    cout << "Unknown Command: " << temp << endl;
+                }
+            }
+            return;
+        // 1 as server
+        case 1:
+            // create server socket
+            network.create_server_sock(SERVER_PORT);
+            cout << "[TA @ CSE ~]  Server startup\n";
+            cout << "[TA @ CSE ~]  Server ip: 127.0.0.1 port: " << SERVER_PORT << "\n";
+            cout << "[TA @ CSE ~]  Listening ...\n";
+            while(1){
+                listen2cli();
+                //create a child process to handle connection with client
+                pid_t pid;
+                pid = fork();
+                if(pid == 0)
+                    while(1) read_cli();
+            }
+            return;
+     }
+ }
+
 
 void Network::create_client_sock(uint16_t port){
     client_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -108,55 +166,6 @@ void Network::create_server_sock( uint16_t port){
      else cout << "connect to server " << ip << ":" << port << " success\n";
  }
 
- void Network::run_interface(int choice){
-     // user input
-    string userin, temp;
-     switch(choice){
-         // 0 as client
-         case 0:
-            // create client socket
-            create_client_sock(CLIENT_PORT);
-            cout << "Client ip: 127.0.0.1 port: " << CLIENT_PORT << "\n";
-            while(1){
-                cout << "[student @ CSE ~ ]$ ";
-                getline(cin,userin);
-                stringstream ss(userin);
-                ss >> temp;
-                 if(temp == "connect"){
-                     u_int16_t port;
-                     ss >> temp;
-                     ss >> port;
-                    connect2srv(temp,port);
-                 }
-                else if(temp == "upload"){
-                    ss >> temp;
-                    send_file(temp);
-                }
-                else if(temp == "goodbye"){
-                    disconnect();
-                    cout << "See you next time.\n";
-                    return;
-                }
-                else{
-                    cout << "Unknown Command: " << temp << endl;
-                }
-            }
-            return;
-        // 1 as server
-        case 1:
-            // create server socket
-            network.create_server_sock(SERVER_PORT);
-            cout << "[TA @ CSE ~]  Server startup\n";
-            cout << "[TA @ CSE ~]  Server ip: 127.0.0.1 port: " << SERVER_PORT << "\n";
-            cout << "[TA @ CSE ~]  Listening ...\n";
-            while(1){
-                listen2cli();
-                read_cli();
-            }
-            return;
-     }
- }
-
 void Network::send_file(string filename){
     ifstream infile;
     infile.open(filename, ios::in | ios::binary);
@@ -198,6 +207,8 @@ void Network::listen2cli(){
         exit(1);
     }
     else{
+        cli_addr[child_cnt] = cli;
+
          ++child_cnt;
 
          cout << "A Client " << inet_ntoa(cli.sin_addr) << " has connected via port num " << ntohs(cli.sin_port) << " using SOCK_STREAM (TCP)\n";
@@ -211,12 +222,25 @@ int Network::read_cli(){
         cerr << "Read from client Error\n";
         exit(1);
     }
+    //check if disconnect signal
+    if(buf[0] == (char)(-1)){
+        cout << "Client " << inet_ntoa(cli_addr[child_cnt-1].sin_addr) << " with port num " << ntohs(cli_addr[child_cnt-1].sin_port) << "has disconnected\n";
+        exit(1);
+    }
     //debug
     cout << "Debug: " << buf << endl;
     return nbytes;
 }
 
 void Network::disconnect(){
+     buf[0]= (char)(-1);
+
+    int nbytes; // use to check how many bytes had been writen
+    if( (nbytes = write(client_fd, buf, sizeof(buf)))  < 0){
+        cerr << "Close socket Error\n";
+        exit(1);
+    }
+
     if( close(client_fd) != 0){
         cerr << "Close client socket failed\n";
     }
