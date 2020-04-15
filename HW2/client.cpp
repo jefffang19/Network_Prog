@@ -1,3 +1,4 @@
+#include "huffman.h"
 #include <iostream>
 #include <string.h>
 #include <sstream> 
@@ -10,6 +11,7 @@
 #include <arpa/inet.h>
 #define ACPT_CLIENT 5 //number of clients a server can accept
 #define SERVER_PORT 1234
+#define BUFF_SIZE 512
 using namespace std;
 
 class Network{
@@ -21,14 +23,14 @@ private:
     int child_fd[ACPT_CLIENT]; //child create by accept()
     struct sockaddr_in cli_addr[ACPT_CLIENT]; //address of clients
     int child_cnt; //count how many client currently connect to server
-    char buf[512]; // server: read client data.  client: send data, index 0 is saved for : -1 = disconnect, 0 = not data end, 1 = dataend
+    char buf[BUFF_SIZE]; // server: read client data.  client: send data, index 0 is saved for : -1 = disconnect, 0 = not data end, 2 = dataend
     void create_client_sock(uint16_t port);
     void create_server_sock(uint16_t port);
     void connect2srv(string ip, uint16_t port); //client connect to server
     void disconnect(); //close client connection to server
     void send_file(string filename);
     void listen2cli();
-    int read_cli(); // read from client, return data length
+    void read_cli(); // read data from client
 }network;
 
 /************************************************/
@@ -167,8 +169,10 @@ void Network::create_server_sock( uint16_t port){
  }
 
 void Network::send_file(string filename){
+    compress(filename, "." + filename + "_"); //compress the file
+
     ifstream infile;
-    infile.open(filename, ios::in | ios::binary);
+    infile.open("." + filename + "_", ios::in | ios::binary);
 
     char c;
     vector<unsigned char> in_data;
@@ -180,13 +184,25 @@ void Network::send_file(string filename){
     cout << "debug data size: " << in_data.size() << endl;
 
     //copy to buffer
-    for(int i = 0 ; i < in_data.size() ; ++ i) buf [i]= in_data[i];
+    int in_data_pos = 0;
+    while(in_data_pos < in_data.size()){
+        buf[0] = (char)0; // not last packet
+        for(int i = 1 ; i < BUFF_SIZE ; ++ i){
+            if(in_data_pos == in_data.size()){ //all data collected
+                buf[0] = (char)2; // mark as last packet
+                break;
+            }
+            buf[i]= in_data[in_data_pos++];
+        }
 
-    int nbytes; // use to check how many bytes had been writen
-    if( (nbytes = write(client_fd, buf, sizeof(buf)))  < 0){
-        cerr << "Write to client socket Error\n";
-        exit(1);
+        int nbytes; // use to check how many bytes had been writen
+        if( (nbytes = write(client_fd, buf, sizeof(buf)))  < 0){
+            cerr << "Write to client socket Error\n";
+            exit(1);
+        }
+
     }
+
     return;
 }
 
@@ -216,20 +232,43 @@ void Network::listen2cli(){
 
 }
 
-int Network::read_cli(){
-    int nbytes; //count data length from client
-    if( (nbytes = read(child_fd[child_cnt-1], buf, sizeof(buf))) < 0){
-        cerr << "Read from client Error\n";
-        exit(1);
+void Network::read_cli(){
+    int send_data_size = 0;
+    //save the receved data
+    ofstream out;
+    out.open("recv_data_not_decompressed",ios::out | ios::binary);
+    
+    while(1){
+        int nbytes; //count data length from client
+        if( (nbytes = read(child_fd[child_cnt-1], buf, sizeof(buf))) < 0){
+            cerr << "Read from client Error\n";
+            exit(1);
+        }
+        //check if disconnect signal
+        if(buf[0] == (char)(-1)){
+            cout << "Client " << inet_ntoa(cli_addr[child_cnt-1].sin_addr) << " with port num " << ntohs(cli_addr[child_cnt-1].sin_port) << " has disconnected\n";
+            exit(1);
+        }
+        //debug
+       // cout << "Debug: " << buf << endl;
+        
+        for(int i = 1 ; i < BUFF_SIZE ; ++i){
+            if(nbytes != BUFF_SIZE && i > nbytes) break;
+            out << buf[i];
+            ++send_data_size;
+        }
+        if(buf[0] == (char)2) break;
     }
-    //check if disconnect signal
-    if(buf[0] == (char)(-1)){
-        cout << "Client " << inet_ntoa(cli_addr[child_cnt-1].sin_addr) << " with port num " << ntohs(cli_addr[child_cnt-1].sin_port) << "has disconnected\n";
-        exit(1);
-    }
-    //debug
-    cout << "Debug: " << buf << endl;
-    return nbytes;
+
+    out.close();
+
+     //decompress
+    decompress("recv_data_not_decompressed","recv_data_decompressed");
+
+    cout << "Client " << inet_ntoa(cli_addr[child_cnt-1].sin_addr) << " with port num " << ntohs(cli_addr[child_cnt-1].sin_port) << " send a data size: " << send_data_size << endl;
+    cout << "The decompress version is saved as \"recv_data_decompressed\" and not decompress version is saved as \"recv_data_not_decompressed\" \n";
+
+    return;
 }
 
 void Network::disconnect(){
