@@ -142,9 +142,6 @@ void *share_mem[ACPT_CLIENT];
                                 for(int k = 0 ; k < ACPT_CLIENT ; ++k ) cout << name_list[k] << " ";
                                 cout << endl;
                             }
-                            else{
-                                cout << "User " << temp << " is back online\n";
-                            }
                         }
                         //msg from child process
                         else{
