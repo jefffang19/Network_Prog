@@ -6,6 +6,7 @@
 #include <string.h>
 #include <time.h>
 #include <sstream>
+#include <signal.h>
 
 #define STDIN 0 // standard input 's file descriptor
 
@@ -17,6 +18,10 @@ void* create_sharemem(size_t size);
 void *share_mem[ACPT_CLIENT];
 
  void Network::run_interface(int choice){
+
+    time_t rawtime;
+    time (&rawtime);
+    
      // user input
     string userin, temp;
     switch(choice){
@@ -37,7 +42,7 @@ void *share_mem[ACPT_CLIENT];
                     ss >> temp;
                     ss >> port;
                     ss >> uname;
-                    connect2srv(temp,port,uname); cout << "debug\n";
+                    connect2srv(temp,port,uname); 
                     break;
                 }
                 else { cout << "Please connect to server first! \n"; }
@@ -68,6 +73,8 @@ void *share_mem[ACPT_CLIENT];
                     else if(temp == "bye"){
                         disconnect();
                         cout << "See you next time.\n";
+                        //kill child process
+                        kill(pid1, SIGKILL);
                         return;
                     }
                     else{
@@ -134,10 +141,13 @@ void *share_mem[ACPT_CLIENT];
                                 cout << "Current Accounts:  ";
                                 for(int k = 0 ; k < ACPT_CLIENT ; ++k ) cout << name_list[k] << " ";
                                 cout << endl;
-                            } 
+                            }
+                            else{
+                                cout << "User " << temp << " is back online\n";
+                            }
                         }
                         //msg from child process
-                        else{ cout << "debug ipc raw " << recv_msg << endl;
+                        else{
                             //reset share buffer
                             memset( share_mem[i], 0, 100);
                             memcpy(share_mem[i], idle_str, sizeof(idle_str));
@@ -149,24 +159,20 @@ void *share_mem[ACPT_CLIENT];
                             bool names = true;
 
                             stringstream ss4; //concat msg if contains space
-                            while(ss >> temp){ cout << "debug parsing : " << temp << endl;
+                            while(ss >> temp){
                                 if(temp[0] == '\"') names = false;
                                 
                                 if(names){
                                     to_who.push_back(temp);
-                                    cout << "debug to who " << temp << endl;
                                 }
                                 else if(temp[temp.size()-1] != '\"'){
                                     ss4 << temp << " ";
-                                    cout << "debug : p2 " << temp << endl;
                                 } 
                                 else{
                                     ss4 << temp;
                                     stringstream ss2;
-                                    ss2 << "[ " << name_list[i] << " send you a msg : " << ss4.str() << " ]\n";
+                                    ss2 << "[ " << name_list[i] << " send you a msg : " << ss4.str() << " at " << ctime(&rawtime) << "]\n";
                                     temp = ss2.str();
-                                    cout << "debug ipc msg : " << i << ' ' << temp << endl;
-                                    cout << "debug ipc to " << cli_name[to_who[0]] << endl;
                                     string wrong_uname = "";
                                     for(int j = 0 ; j < to_who.size() ; ++j){
                                         if(cli_name.count(to_who[j])) msg_parent[cli_name[to_who[j]]] = temp;
@@ -210,7 +216,7 @@ void *share_mem[ACPT_CLIENT];
                         }
                         //read cmd from parent process and send to client
                         else{
-                            sleep(1);
+                            usleep(15000);
                             while(1){
                                 recv_msg = read_sharemem(child_id);
 
@@ -297,13 +303,12 @@ void Network::create_server_sock( uint16_t port){
 
  }
 
-void Network::send_msg(int fd, string msg){ cout << "debug: " << msg << " " << msg.size() << endl;
+void Network::send_msg(int fd, string msg){
 
     //copy to buffer
     buf[0] = (char)(msg.size()); // msg length
     buf[1] = (char)(0);
 
-    cout << "debug: buf0 " << msg.size() << " fd " << fd << endl; 
     for(int i = 2 ; i < msg.size() + 2 ; ++ i){
         buf[i]= msg[i - 2];
     }
@@ -349,9 +354,10 @@ string Network::listen2cli(int &child_id){
         uname.push_back(buf[i]);
     }
 
+    username = uname;
+
     //check if username exist
     if(cli_name.count(uname)){
-        cout << "debug account exist " << cli_name[uname] << endl;
         child_fd[cli_name[uname]] = temp_fd;
         //get child id
         child_id = cli_name[uname];
@@ -384,6 +390,9 @@ string Network::read_cli(int child_id){
     //check if disconnect signal
     if((unsigned char)buf[0] == (unsigned char)(0) && (unsigned char)buf[1] == (unsigned char)(0)){
         cout << "[Server @ CSE ~] Client " << inet_ntoa(cli_addr[child_cnt-1].sin_addr) << " with port num " << ntohs(cli_addr[child_cnt-1].sin_port) << " has disconnected\n";
+        stringstream ss;
+        ss << "<User " << username << " has disconnected>\n"; 
+        broadcast2child(ss.str());
         exit(1);
     }
     if((unsigned char)buf[0] == (unsigned char)0 && (unsigned char)buf[1] != (unsigned char)(0)){
@@ -393,7 +402,6 @@ string Network::read_cli(int child_id){
     }
     else{
         int last_size = (unsigned char)buf[0] + (unsigned char)buf[1];
-        //cout << "debug: " << last_size << endl;
         for(int i = 2 ; i <=  last_size ; ++i){
             msg.push_back(buf[i]);
         }
@@ -413,7 +421,6 @@ string Network::read_srv(){
         exit(1);
     }
     int len = (unsigned char)buf[0];
-    //cout << "debug: " << last_size << endl;
     for(int i = 2 ; i <  len + 2  ; ++i){
         msg.push_back(buf[i]);
     }
@@ -449,7 +456,7 @@ void* create_sharemem(size_t size) {
 
 void Network::broadcast2child(string msg){
     sleep(1);
-    for(int i = 0 ; i < child_cnt ; ++i){
+    for(int i = 0 ; i < ACPT_CLIENT ; ++i){
         memset( share_mem[i], 0, 100);
         memcpy(share_mem[i], msg.c_str(), msg.size());
     }

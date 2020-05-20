@@ -27,6 +27,7 @@ public:
 private:
     int client_fd; int server_fd; //file descripter of client socket and server socket
     int child_fd[ACPT_CLIENT]; //child create by accept()
+    string username;
     map <string,int> cli_name; //map client name with it's connecting socket fd
     struct sockaddr_in cli_addr[ACPT_CLIENT]; //address of clients
     int child_cnt; //count how many client currently connect to server
