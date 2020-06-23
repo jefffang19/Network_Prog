@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="javanet:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/javanet_jar</output-path>
+    <root id="archive" name="javanet.jar">
+      <element id="module-output" name="javanet" />
+    </root>
+  </artifact>
+</component>
